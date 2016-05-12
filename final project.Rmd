@@ -1,0 +1,247 @@
+---
+title: "MOLB 7621 Final Project"
+author: "Ryan Mackie"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+```{r,warning=FALSE}
+setwd('L:/Ryan Mackie/Classes/Genome Analysis Workshop/Final Project/')
+
+library(readr)
+library(dplyr)
+library(stringr)
+library(tidyr)
+library(ggplot2)
+
+# file map containing file names and patient IDs
+file_map <- read_tsv("data/FILE_SAMPLE_MAP.txt") %>%
+  rename(barcode = `barcode(s)`)
+
+# define rna seq files
+rna_files_path <- dir('data/', pattern = ".rsem.genes.normalized_results") %>%
+  paste('data/', . , sep = "")
+rna_files_name <- dir('data/', pattern = ".rsem.genes.normalized_results")
+
+
+
+######################################################################################
+# this loop takes several minutes to run
+# instead, read in previously created table underneath this block
+######################################################################################
+#
+# # create data frame of gene_id only
+# raw_data <- read_tsv(rna_files_path[1]) %>% select(gene_id)
+#
+# # build dataframe of genes by patient ID
+# for(i in 1:length(rna_files_path)){
+#   name <- file_map$barcode[grep(rna_files_name[i], file_map$filename)] %>%
+#     str_replace(.,".{12}$","")
+#   loop_data <- read_tsv(rna_files_path[i], col_names = c("gene_id",name), skip = 1)
+#   raw_data <- left_join(raw_data, loop_data, by = "gene_id")
+# }
+# 
+# # PDL1 only data frame
+# PDL1_geneid <- raw_data$gene_id[grep("CD274",raw_data$gene_id)]
+# 
+# PDL1_data <- filter(raw_data, gene_id == PDL1_geneid) %>%
+#   gather(patient_id, PDL1, -gene_id) %>% select(-gene_id)
+#
+######################################################################################
+
+
+
+# import full TCGA PDL1 data
+PDL1_data <- read_csv("data/TCGA_PDL1only_rnaseq.csv") %>% select(patient_id, PDL1)
+
+# mutation data from cell paper
+mut_data <- read_csv("data/Cell Paper mut data.csv") %>%
+  select(sample,BRAF,RAS,mutDriver_Protein_Change) %>%
+  rename(patient_id = sample) %>%
+  filter(!(BRAF == 1 & RAS == 1)) %>%
+  mutate(braf_ras = ifelse(BRAF == 1, "BRAF", ifelse(RAS == 1, "RAS", "None"))) %>%
+  mutate(ras_type = ifelse(grepl("KRAS",mutDriver_Protein_Change),"KRAS",
+                           ifelse(grepl("HRAS",mutDriver_Protein_Change),"HRAS",
+                                  ifelse(grepl("NRAS",mutDriver_Protein_Change),"NRAS",NA))))
+
+PDL1_data <- mut_data %>% select(patient_id,braf_ras,ras_type) %>%
+  inner_join(PDL1_data, by = "patient_id") %>%
+  mutate(braf_ras = factor(braf_ras),
+         ras_type = factor(ras_type))
+
+```
+
+```{r}
+# plots
+pdl1_mutation_plot <- PDL1_data %>% 
+  ggplot(aes(reorder(braf_ras, PDL1, stats::median), PDL1)) +
+  geom_boxplot() +
+  ylab("PDL1 mRNA Expression") + xlab("Mutation Status") +
+  ggtitle("PDL1 by Mutation") +
+  theme(axis.text.y = element_text(size = 8),
+        axis.title.y = element_text(vjust = 1),
+        plot.title = element_text(vjust = 1))
+
+pdl1_ras_plot <- ggplot(PDL1_data, aes(reorder(braf_ras, PDL1, stats::median), PDL1,
+                                       color = reorder(ras_type,PDL1,median))) +
+  geom_boxplot() +
+  ylab("PDL1 mRNA Expression") + xlab("Mutation Status") +
+  ggtitle("PDL1 by Mutation") +
+  theme(axis.text.y = element_text(size = 8),
+        axis.title.y = element_text(vjust = 1),
+        plot.title = element_text(vjust = 1),
+        legend.title = element_blank())
+```
+
+***
+
+***
+
+## Hypothesis / Question
+
+Using TCGA thryroid cancer data, is there a difference in PDL1 mRNA expression based on BRAF/RAS mutation status?
+
+***
+
+***
+
+## Data
+
+TCGA has a large amount of data from primary tumors, grouped by cancer type.
+
+[TCGA Homepage](http://cancergenome.nih.gov/)
+
+[TCGA Data Matrix](https://tcga-data.nci.nih.gov/tcga/dataAccessMatrix.htm)
+
+<br></br>
+
+TCGA data is organized by patient. So there is one (or more) file per patient.
+For RNAseq data, the downloaded data will be a list of gene names and expression per patient.
+
+```{r}
+read_tsv(rna_files_path[1])
+```
+
+<br></br>
+
+Each patient is given a uniqe number, but the files are named using a different system, so we must convert each file name into a patient ID using the File Map that comes with the downloaded data.
+
+Filename = `r rna_files_name[1]`
+
+Barcode = `r file_map$barcode[1]`
+
+<br></br>
+
+For each file, the following data frame is created, which now has the patient ID as the column name.
+
+```{r}
+raw_data <- read_csv('data/TCGA_full_rnaseq_dataframe.csv')
+raw_data[,2:3]
+```
+
+<br></br>
+
+All the files are merged together into one data frame of genes by patient ID.
+
+```{r}
+raw_data[,2:5]
+```
+
+<br></br>
+
+PDL1 is selected, and the data is converted to tidy format, with a column of patient IDs and a column of PDL1 expression.
+
+```{r}
+PDL1_data[1:5,] %>% select(patient_id,PDL1)
+```
+
+<br></br>
+
+Now we have PDL1 expression data, so we need to get mutation status.
+
+The following table is from a Cell paper that analyzed TCGA data for various different mutations.
+
+```{r}
+read_csv("data/Cell Paper mut data.csv") %>% select(sample,BRAF,RAS,mutDriver_Protein_Change)
+```
+
+<br></br>
+
+After a few modifications, the table becomes more usable.
+
+```{r}
+mut_data[1:5,]
+```
+
+<br></br>
+
+Combine PDL1 expression and mutation data.
+
+Now we have our data in a usable format and can test the hypothesis.
+
+```{r}
+PDL1_data[1:5,]
+```
+
+***
+
+***
+
+## Graphing
+
+Is PDL1 expression different based on BRAF/RAS mutation status?
+
+<center>
+```{r, fig.width=6,fig.height=7.5}
+pdl1_mutation_plot
+```
+</center>
+
+<br></br>
+
+Kruskal Wallis test to see if any pairs are different: p-value = `r kruskal.test(PDL1 ~ braf_ras, data = PDL1_data)$p.value`
+
+```{r}
+#define data individually for wilcox.test
+ras.pdl1 <- PDL1_data$PDL1[PDL1_data$braf_ras == "RAS"]
+braf.pdl1 <- PDL1_data$PDL1[PDL1_data$braf_ras == "BRAF"]
+none.pdl1 <- PDL1_data$PDL1[PDL1_data$braf_ras == "None"]
+```
+
+<br></br>
+
+Since the p-value from Kruskal Wallis is significant, we will make pair-wise comparisons of the three groups using Wilcox-rank-sum test.
+
+None vs. BRAF: p-value = `r wilcox.test(none.pdl1,braf.pdl1)$p.value`
+
+None vs. RAS: p-value = `r wilcox.test(ras.pdl1,none.pdl1)$p.value`
+
+BRAF vs. RAS: p-value = `r wilcox.test(ras.pdl1,braf.pdl1)$p.value`
+
+All p-values are significant, therefore all groups are different from each other.
+
+<br></br>
+
+<br></br>
+
+Is there a difference in PDL1 expression based on the different types of RAS mutations?
+
+<center>
+```{r,fig.width=7.2,fig.height=7.5}
+pdl1_ras_plot
+```
+</center>
+
+<br></br>
+
+Kruskal Wallis test to see if RAS mutants are different from each other: p-value = `r kruskal.test(PDL1 ~ ras_type, data = PDL1_data)$p.value`
+
+Because the p-value is not significant, we conclude that PDL1 expression is the same for all three different RAS mutations.
+
+<br></br>
+
+<br></br>
+
